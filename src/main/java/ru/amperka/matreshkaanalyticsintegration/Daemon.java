@@ -1,5 +1,13 @@
 package ru.amperka.matreshkaanalyticsintegration;
 
+import java.awt.AWTException;
+import java.awt.Image;
+import java.awt.MenuItem;
+import java.awt.PopupMenu;
+import java.awt.SystemTray;
+import java.awt.TrayIcon;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -11,6 +19,7 @@ import java.util.List;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.swing.ImageIcon;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
@@ -23,7 +32,7 @@ import org.apache.commons.cli.ParseException;
  * 
  * @author aleksandr<kopilov.ad@gmail.com>
  */
-public class Daemon {
+public class Daemon implements Runnable {
 	private static final ResourceBundle l10n = ResourceBundle.getBundle("ru.amperka.matreshkaanalyticsintegration.l10n");
 	private static final Logger logger = Logger.getLogger(Daemon.class.getName());
 //	static {
@@ -35,6 +44,7 @@ public class Daemon {
 //	}
 	
 	private final String connectionString, login, password;
+	private volatile boolean running = true;
 	
 	/**
 	 * Парсинг и валидация входных параметров, запуск демона
@@ -55,11 +65,7 @@ public class Daemon {
 			return;
 		}
 		Daemon daemon = new Daemon(commandLine);
-		try {
-			daemon.run();
-		} catch (SQLException | InterruptedException ex) {
-			Logger.getLogger(Daemon.class.getName()).log(Level.SEVERE, null, ex);
-		}
+		new Thread(daemon).start();
 	}
 	
 	/**
@@ -83,31 +89,59 @@ public class Daemon {
 		connectionString = commandLine.getArgList().get(0);
 		login = commandLine.getOptionValue("login");
 		password = commandLine.getOptionValue("password");
+		
+		if (commandLine.hasOption("icon")) {
+			displayTrayIcon();
+		}
 	}
 	
-	private synchronized void run() throws SQLException, InterruptedException {
-		Connection connectionRead = DriverManager.getConnection(connectionString, login, password);
-		Connection connectionWrite = DriverManager.getConnection(connectionString, login, password);
-		PreparedStatement getActiveResources = connectionRead.prepareStatement(
-				"select ID, URL, KEY_FILE_LOCATION, SERVICE_ACCOUNT_EMAIL, LAST_UPDATED, UPDATING_PERIOD from WEBRESOURCE\n" +
-				"where IS_ACTIVE > 0 and (current_timestamp - LAST_UPDATED) * 24 * 60 * 60 > UPDATING_PERIOD");
-		PreparedStatement updateResource = connectionWrite.prepareStatement(
-				"update WEBRESOURCE set LAST_UPDATED = current_timestamp, USERS_ONLINE = ? where ID = ?");
-		while (true) {
-			getActiveResources.clearParameters();
-			ResultSet resultSet = getActiveResources.executeQuery();
-			while (resultSet.next()) {
-				String serviceAccountEmail = resultSet.getString("SERVICE_ACCOUNT_EMAIL");
-				String keyFileLocation = resultSet.getString("KEY_FILE_LOCATION");
-				String url = resultSet.getString("URL");
-				int usersOnline = HelloAnalyticsRealtime.getUsersOnline(serviceAccountEmail, keyFileLocation, url);
-				logger.log(Level.FINE, "Online on {0}: {1}", new Object[]{url, usersOnline});
-				updateResource.clearParameters();
-				updateResource.setInt(1, usersOnline);
-				updateResource.setInt(2, resultSet.getInt("ID"));
-				updateResource.execute();
+	@Override
+	public synchronized void run() {
+		
+		try {
+			Connection connectionRead = DriverManager.getConnection(connectionString, login, password);
+			Connection connectionWrite = DriverManager.getConnection(connectionString, login, password);
+			PreparedStatement getActiveResources = connectionRead.prepareStatement(
+					"select ID, URL, KEY_FILE_LOCATION, SERVICE_ACCOUNT_EMAIL, LAST_UPDATED, UPDATING_PERIOD from WEBRESOURCE\n" +
+							"where IS_ACTIVE > 0 and (current_timestamp - LAST_UPDATED) * 24 * 60 * 60 > UPDATING_PERIOD");
+			PreparedStatement updateResource = connectionWrite.prepareStatement(
+					"update WEBRESOURCE set LAST_UPDATED = current_timestamp, USERS_ONLINE = ? where ID = ?");
+			while (running) {
+				getActiveResources.clearParameters();
+				ResultSet resultSet = getActiveResources.executeQuery();
+				while (resultSet.next()) {
+					String serviceAccountEmail = resultSet.getString("SERVICE_ACCOUNT_EMAIL");
+					String keyFileLocation = resultSet.getString("KEY_FILE_LOCATION");
+					String url = resultSet.getString("URL");
+					int usersOnline = HelloAnalyticsRealtime.getUsersOnline(serviceAccountEmail, keyFileLocation, url);
+					logger.log(Level.FINE, "Online on {0}: {1}", new Object[]{url, usersOnline});
+					updateResource.clearParameters();
+					updateResource.setInt(1, usersOnline);
+					updateResource.setInt(2, resultSet.getInt("ID"));
+					updateResource.execute();
+				}
+				this.wait(500);
 			}
-			this.wait(500);
+		} catch (SQLException | InterruptedException ex) {
+			Logger.getLogger(Daemon.class.getName()).log(Level.SEVERE, null, ex);
+		}
+	}
+
+	private void displayTrayIcon() {
+		SystemTray systemTray= SystemTray.getSystemTray();
+		Image image = new ImageIcon(this.getClass().getResource("icon.png")).getImage();
+		PopupMenu menu = new PopupMenu();
+		TrayIcon trayIcon = new TrayIcon(image, "Matreshka Analytics Integration", menu);
+		MenuItem exitItem = new MenuItem(l10n.getString("Exit"));
+		exitItem.addActionListener((ActionEvent e) -> {
+			running = false;
+			systemTray.remove(trayIcon);
+		});
+		menu.add(exitItem);
+		try {
+			systemTray.add(trayIcon);
+		} catch (AWTException ex) {
+			Logger.getLogger(Daemon.class.getName()).log(Level.SEVERE, "Could not display tray icon", ex);
 		}
 	}
 
