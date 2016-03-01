@@ -7,14 +7,10 @@ import java.awt.PopupMenu;
 import java.awt.SystemTray;
 import java.awt.TrayIcon;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
@@ -43,7 +39,6 @@ public class Daemon implements Runnable {
 //		logger.addHandler(handler);
 //	}
 	
-	private final String connectionString, login, password;
 	private volatile boolean running = true;
 	
 	/**
@@ -86,9 +81,10 @@ public class Daemon implements Runnable {
 	}
 	
 	private Daemon(CommandLine commandLine) {
-		connectionString = commandLine.getArgList().get(0);
-		login = commandLine.getOptionValue("login");
-		password = commandLine.getOptionValue("password");
+		String connectionString = commandLine.getArgList().get(0);
+		String login = commandLine.getOptionValue("login");
+		String password = commandLine.getOptionValue("password");
+		ConnectionGate.getIstance().init(connectionString, login, password);
 		
 		if (commandLine.hasOption("icon")) {
 			displayTrayIcon();
@@ -97,10 +93,8 @@ public class Daemon implements Runnable {
 	
 	@Override
 	public synchronized void run() {
-		
-		try {
-			Connection connectionRead = DriverManager.getConnection(connectionString, login, password);
-			Connection connectionWrite = DriverManager.getConnection(connectionString, login, password);
+		try (Connection connectionWrite = ConnectionGate.getIstance().getConnection()) {
+		try (Connection connectionRead = ConnectionGate.getIstance().getConnection()) {
 			PreparedStatement getActiveResources = connectionRead.prepareStatement(
 					"select ID, URL, KEY_FILE_LOCATION, SERVICE_ACCOUNT_EMAIL, LAST_UPDATED, UPDATING_PERIOD from WEBRESOURCE\n" +
 							"where IS_ACTIVE > 0 and (current_timestamp - LAST_UPDATED) * 24 * 60 * 60 > UPDATING_PERIOD");
@@ -122,7 +116,7 @@ public class Daemon implements Runnable {
 				}
 				this.wait(500);
 			}
-		} catch (SQLException | InterruptedException ex) {
+		}} catch (SQLException | InterruptedException ex) {
 			Logger.getLogger(Daemon.class.getName()).log(Level.SEVERE, null, ex);
 		}
 	}
