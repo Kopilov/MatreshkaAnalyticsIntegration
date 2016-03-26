@@ -1,4 +1,4 @@
-package ru.amperka.matreshkaanalyticsintegration;
+package ru.ardu_cris.mai.face;
 
 import javax.swing.*;
 import javax.swing.SpringLayout;

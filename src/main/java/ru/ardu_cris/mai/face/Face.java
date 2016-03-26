@@ -1,4 +1,4 @@
-package ru.amperka.matreshkaanalyticsintegration;
+package ru.ardu_cris.mai.face;
 
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -18,7 +18,6 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.prefs.Preferences;
-import javax.swing.Action;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
@@ -37,12 +36,9 @@ import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import javax.swing.SpringLayout;
 import javax.swing.table.JTableHeader;
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.CommandLineParser;
-import org.apache.commons.cli.DefaultParser;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.ParseException;
 import org.apache.commons.lang3.StringEscapeUtils;
+import ru.ardu_cris.mai.ConnectionGate;
+import ru.ardu_cris.mai.daemon.Daemon;
 
 /**
  * Визуальное окно для управления данными о веб-ресурсах
@@ -51,69 +47,23 @@ import org.apache.commons.lang3.StringEscapeUtils;
  */
 public class Face extends javax.swing.JFrame {
 	private static final Logger logger = Logger.getLogger(Face.class.getName());
-	private static final ResourceBundle l10n = ResourceBundle.getBundle("ru.amperka.matreshkaanalyticsintegration.l10n");
+	private FaceModule faceModule;
+	private static final ResourceBundle l10n = ResourceBundle.getBundle("ru.ardu_cris.mai.l10n");
 	private JTabbedPane tabbedPane;
 	private Component gridPanel, formPanel;
 	JTable webresourcesTable;
 	private List<JTextField> formTextFields = new ArrayList<>();
 	//WebresourcesSwingTableModel webresourcesTableModel;
 	
-	public static void main(String[] args) {
-		CommandLine commandLine;
-		try {
-			commandLine = parseCommandLine(args);
-			List<String> argList = commandLine.getArgList();
-			if (commandLine.hasOption("help") || argList.isEmpty()) {
-				System.out.println(l10n.getString("detailedHelpGUI"));
-				return;
-			}
-		} catch (ParseException ex) {
-			System.out.println(ex.getLocalizedMessage());
-			System.out.println(l10n.getString("help"));
-			return;
-		}
-		open(commandLine);
-	}
-	
-	/**
-	 * Парсинг параметров командной строки с использованием Apache Commons CLI.
-	 * Ищутся опции "login", "password", "help"
-	 * @param args параметры командной строки
-	 * @return
-	 * @throws ParseException 
-	 */
-	private static CommandLine parseCommandLine(String[] args) throws ParseException {
-		Options options = new Options();
-		options.addOption(null, "login", true, "Database login");
-		options.addOption(null, "password", true, "Database password");
-		options.addOption("h", "help", false, "Show help message and exit");
-		CommandLineParser parser = new DefaultParser();
-		return parser.parse(options, args);
-	}
-	
-	public static void open(CommandLine commandLine) {
-		Face face = new Face(commandLine);
-		face.initComponents();
-		face.setVisible(true);
-	}
-	
-	public static void open() {
-		Face face = new Face();
-		face.initComponents();
-		face.setVisible(true);
-	}
-	
-	public Face() {
+	public Face(FaceModule faceModule, boolean startedFromDaemon) {
 		super("matreshkaanalyticsintegration");
-		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-	}
-	
-	private Face(CommandLine commandLine) {
-		this();
-		String connectionString = commandLine.getArgList().get(0);
-		String login = commandLine.getOptionValue("login");
-		String password = commandLine.getOptionValue("password");
-		ConnectionGate.getIstance().init(connectionString, login, password);
+//		if (startedFromDaemon) {
+			setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+//		} else {
+//			setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+//		}
+		this.faceModule = faceModule;
+		initComponents();
 	}
 	
 	private void initComponents() {
@@ -127,7 +77,12 @@ public class Face extends javax.swing.JFrame {
 		JMenuBar menuBar = new JMenuBar();
 		final JMenu jMenu = new JMenu("aaas");
 		menuBar.add(jMenu);
-		jMenu.add(new JMenuItem("123"));
+		JMenuItem startDaemonItem = new JMenuItem("Start background process");
+		startDaemonItem.addActionListener((ActionEvent e) -> {
+			Daemon daemon = new Daemon(true);
+			daemon.execute(faceModule.getCommandLine());
+		});
+		jMenu.add(startDaemonItem);
 		this.setJMenuBar(menuBar);
 		tabbedPane = new JTabbedPane();
 		try {

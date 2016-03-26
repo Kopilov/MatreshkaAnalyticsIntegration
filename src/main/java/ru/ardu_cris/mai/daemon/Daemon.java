@@ -1,5 +1,6 @@
-package ru.amperka.matreshkaanalyticsintegration;
+package ru.ardu_cris.mai.daemon;
 
+import ru.ardu_cris.mai.Query;
 import java.awt.AWTException;
 import java.awt.Image;
 import java.awt.MenuItem;
@@ -7,20 +8,21 @@ import java.awt.PopupMenu;
 import java.awt.SystemTray;
 import java.awt.TrayIcon;
 import java.awt.event.ActionEvent;
+import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.List;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.swing.ImageIcon;
 import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.CommandLineParser;
-import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
-import org.apache.commons.cli.ParseException;
+import ru.ardu_cris.mai.BaseApplicationModule;
+import ru.ardu_cris.mai.ConnectionGate;
+import ru.ardu_cris.mai.face.FaceModule;
 
 /**
  * Фоновый процесс, осуществляющий сбор данных из Google Analytics и запись их
@@ -28,9 +30,18 @@ import org.apache.commons.cli.ParseException;
  * 
  * @author aleksandr<kopilov.ad@gmail.com>
  */
-public class Daemon implements Runnable {
-	private static final ResourceBundle l10n = ResourceBundle.getBundle("ru.amperka.matreshkaanalyticsintegration.l10n");
+public class Daemon extends BaseApplicationModule implements Runnable {
+	private static final ResourceBundle l10n = ResourceBundle.getBundle("ru.ardu_cris.mai.l10n");
 	private static final Logger logger = Logger.getLogger(Daemon.class.getName());
+	private boolean startedFromGui = false;
+	
+	public Daemon() {
+		super();
+	}
+	
+	public Daemon(boolean startedFromGui) {
+		this.startedFromGui = startedFromGui;
+	}
 //	static {
 //		logger.setLevel(Level.FINEST);
 //		ConsoleHandler handler = new ConsoleHandler();
@@ -41,54 +52,21 @@ public class Daemon implements Runnable {
 	
 	private volatile boolean running = true;
 	
-	/**
-	 * Парсинг и валидация входных параметров, запуск демона
-	 * @param args параметры командной строки
-	 */
-	public static void main(String[] args) {
-		CommandLine commandLine;
-		try {
-			commandLine = parseCommandLine(args);
-			List<String> argList = commandLine.getArgList();
-			if (commandLine.hasOption("help") || argList.isEmpty()) {
-				System.out.println(l10n.getString("detailedHelp"));
-				return;
-			}
-		} catch (ParseException ex) {
-			System.out.println(ex.getLocalizedMessage());
-			System.out.println(l10n.getString("help"));
-			return;
-		}
-		Daemon daemon = new Daemon(commandLine);
-		new Thread(daemon).start();
-	}
-	
-	/**
-	 * Парсинг параметров командной строки с использованием Apache Commons CLI.
-	 * Ищутся опции "login", "password", "icon", "help"
-	 * @param args параметры командной строки
-	 * @return
-	 * @throws ParseException 
-	 */
-	private static CommandLine parseCommandLine(String[] args) throws ParseException {
-		Options options = new Options();
-		options.addOption(null, "login", true, "Database login");
-		options.addOption(null, "password", true, "Database password");
+	@Override
+	public Options getOptionsList() {
+		Options options = super.getOptionsList();
 		options.addOption("i", "icon", false, "Display tray icon");
-		options.addOption("h", "help", false, "Show help message and exit");
-		CommandLineParser parser = new DefaultParser();
-		return parser.parse(options, args);
+		return options;
 	}
 	
-	private Daemon(CommandLine commandLine) {
-		String connectionString = commandLine.getArgList().get(0);
-		String login = commandLine.getOptionValue("login");
-		String password = commandLine.getOptionValue("password");
-		ConnectionGate.getIstance().init(connectionString, login, password);
-		
-		if (commandLine.hasOption("icon")) {
+	@Override
+	public int execute(CommandLine commandLine) {
+		super.execute(commandLine);
+		if (startedFromGui || commandLine.hasOption("icon")) {
 			displayTrayIcon();
 		}
+		new Thread(this).start();
+		return 0;
 	}
 	
 	@Override
@@ -97,7 +75,10 @@ public class Daemon implements Runnable {
 		try (Connection connectionRead = ConnectionGate.getIstance().getConnection()) {
 			PreparedStatement getActiveResources = connectionRead.prepareStatement(
 					"select ID, URL, KEY_FILE_LOCATION, SERVICE_ACCOUNT_EMAIL, LAST_UPDATED, UPDATING_PERIOD from WEBRESOURCE\n" +
-							"where IS_ACTIVE > 0 and (current_timestamp - LAST_UPDATED) * 24 * 60 * 60 > UPDATING_PERIOD");
+							"where IS_ACTIVE > 0 and (\n" +
+							"	(current_timestamp - LAST_UPDATED) * 24 * 60 * 60 > UPDATING_PERIOD\n" +
+							"	or LAST_UPDATED is null\n" +
+							")");
 			PreparedStatement updateResource = connectionWrite.prepareStatement(
 					"update WEBRESOURCE set LAST_UPDATED = current_timestamp, USERS_ONLINE = ? where ID = ?");
 			while (running) {
@@ -107,12 +88,16 @@ public class Daemon implements Runnable {
 					String serviceAccountEmail = resultSet.getString("SERVICE_ACCOUNT_EMAIL");
 					String keyFileLocation = resultSet.getString("KEY_FILE_LOCATION");
 					String url = resultSet.getString("URL");
-					int usersOnline = HelloAnalyticsRealtime.getUsersOnline(serviceAccountEmail, keyFileLocation, url);
-					logger.log(Level.FINE, "Online on {0}: {1}", new Object[]{url, usersOnline});
-					updateResource.clearParameters();
-					updateResource.setInt(1, usersOnline);
-					updateResource.setInt(2, resultSet.getInt("ID"));
-					updateResource.execute();
+					try {
+						int usersOnline = Query.getUsersOnline(serviceAccountEmail, keyFileLocation, url);
+						logger.log(Level.FINE, "Online on {0}: {1}", new Object[]{url, usersOnline});
+						updateResource.clearParameters();
+						updateResource.setInt(1, usersOnline);
+						updateResource.setInt(2, resultSet.getInt("ID"));
+						updateResource.execute();
+					} catch (GeneralSecurityException | IOException e) {
+						logger.log(Level.WARNING, "Could not get data from API", e);
+					}
 				}
 				this.wait(500);
 			}
@@ -126,12 +111,22 @@ public class Daemon implements Runnable {
 		Image image = new ImageIcon(this.getClass().getResource("icon.png")).getImage();
 		PopupMenu menu = new PopupMenu();
 		TrayIcon trayIcon = new TrayIcon(image, "Matreshka Analytics Integration", menu);
-		MenuItem exitItem = new MenuItem(l10n.getString("Exit"));
+		
+		MenuItem faceItem = new MenuItem(l10n.getString("settings"));
+		faceItem.addActionListener((ActionEvent e) -> {
+			FaceModule faceModule = new FaceModule(true);
+			CommandLine commandLine = getCommandLine();
+			faceModule.execute(commandLine);
+		});
+		menu.add(faceItem);
+		
+		MenuItem exitItem = new MenuItem(l10n.getString("exit"));
 		exitItem.addActionListener((ActionEvent e) -> {
 			running = false;
 			systemTray.remove(trayIcon);
 		});
 		menu.add(exitItem);
+		
 		try {
 			systemTray.add(trayIcon);
 		} catch (AWTException ex) {
@@ -139,4 +134,8 @@ public class Daemon implements Runnable {
 		}
 	}
 
+	@Override
+	public String getHelpMessage() {
+		throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+	}
 }

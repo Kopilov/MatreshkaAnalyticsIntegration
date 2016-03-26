@@ -1,4 +1,4 @@
-package ru.amperka.matreshkaanalyticsintegration;
+package ru.ardu_cris.mai.face;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -25,7 +25,7 @@ import org.apache.commons.lang3.StringUtils;
  */
 public class WebresourcesSwingTableModel extends AbstractTableModel {
 	private static final String TABLENAME = "WEBRESOURCE";
-	private static final ResourceBundle l10n = ResourceBundle.getBundle("ru.amperka.matreshkaanalyticsintegration.l10n");
+	private static final ResourceBundle l10n = ResourceBundle.getBundle("ru.ardu_cris.mai.l10n");
 
 	private final List<String> columns = new ArrayList<>();
 	private final List<Class> columnsTypes = new ArrayList<>();

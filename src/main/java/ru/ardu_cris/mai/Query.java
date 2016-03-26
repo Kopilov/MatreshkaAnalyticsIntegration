@@ -1,4 +1,4 @@
-package ru.amperka.matreshkaanalyticsintegration;
+package ru.ardu_cris.mai;
 
 import com.google.api.client.googleapis.auth.oauth2.GoogleCredential;
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
@@ -14,7 +14,6 @@ import com.google.api.services.analytics.model.Profiles;
 import com.google.api.services.analytics.model.RealtimeData;
 import com.google.api.services.analytics.model.RealtimeData.ColumnHeaders;
 import com.google.api.services.analytics.model.RealtimeData.ProfileInfo;
-import com.google.api.services.analytics.model.RealtimeData.Query;
 import com.google.api.services.analytics.model.Webproperties;
 import com.google.api.services.analytics.model.Webproperty;
 
@@ -25,15 +24,18 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.Options;
 
 /**
- * A simple example of how to access the Google Analytics API using a service
- * account.
+ * Библиотека и тестовый модуль для выполнения запросов на Google Analytics API
  */
-public class HelloAnalyticsRealtime {
-	private static final Logger logger = Logger.getLogger(HelloAnalyticsRealtime.class.getName());
+public class Query implements ApplicationModule {
+	private static final Logger logger = Logger.getLogger(Query.class.getName());
+	private static final ResourceBundle l10n = ResourceBundle.getBundle("ru.ardu_cris.mai.l10n");
 //	static {
 //		logger.setLevel(Level.FINEST);
 //		ConsoleHandler handler = new ConsoleHandler();
@@ -43,33 +45,72 @@ public class HelloAnalyticsRealtime {
 //	}
 	private static final String APPLICATION_NAME = "Matreshka Analytics Integration";
 
-	public static void main(String[] args) {
-		
-		String keyFileLocation = args[0];
-		String serviceAccountEmail = args[1];
-		String url = args[2];
-		int usersOnline = getUsersOnline(serviceAccountEmail, keyFileLocation, url);
-		System.out.println("usersOnline: " + usersOnline);
+//	public static void main(String[] args) {
+//		
+//		String keyFileLocation = args[0];
+//		String serviceAccountEmail = args[1];
+//		String url = args[2];
+//		int usersOnline = getUsersOnline(serviceAccountEmail, keyFileLocation, url);
+//		System.out.println("usersOnline: " + usersOnline);
+//	}
+	@Override
+	public Options getOptionsList() {
+		Options options = new Options();
+		options.addOption(null, "account", true, "service account email");
+		options.addOption(null, "key", true, "key file location");
+		options.addOption(null, "url", true, "URL of the webresource");
+		options.addOption("h", "help", true, "Show help message and exit");
+		return options;
 	}
-	public static int getUsersOnline(String serviceAccountEmail, String keyFileLocation, String url) {
+	
+	@Override
+	public String validateParameters(CommandLine commandLine) {
+		String error = "";
+		if (!commandLine.hasOption("account")) {
+			error += l10n.getString("addAccountOptionHelp");
+			error += "\n";
+		}
+		if (!commandLine.hasOption("key")) {
+			error += l10n.getString("addKeyOptionHelp");
+			error += "\n";
+		}
+		if (!commandLine.hasOption("url")) {
+			error += l10n.getString("addUrlOptionHelp");
+			error += "\n";
+		}
+		return "".equals(error) ? null : error;
+	}
+	
+	@Override
+	public int execute(CommandLine commandLine) {
 		try {
-			Analytics analytics = initializeAnalytics(serviceAccountEmail, keyFileLocation);
-
-			String profile = getWebresourceProfileId(analytics, url);
-			logger.log(Level.FINE, "First Profile Id: {0}", profile);
-			List<Map<String, String>> realtimeReport = getRealtimeReport(getResults(analytics, profile, "activeUsers"));
-			//realtime report can be empty (if nobody is online)
-			//or should have one row
-			if (realtimeReport == null || realtimeReport.isEmpty()) {
-				return 0;
-			}
-			assert realtimeReport.size() == 1;
-			String activeUsers = realtimeReport.get(0).get("rt:activeUsers");
-			return Integer.valueOf(activeUsers);
+			int usersOnline = getUsersOnline(
+					commandLine.getOptionValue("account"),
+					commandLine.getOptionValue("key"),
+					commandLine.getOptionValue("url")
+			);
+			System.out.println(l10n.getString("usersOnline") + ": " + usersOnline);
 		} catch (IOException | GeneralSecurityException ex) {
-			logger.log(Level.SEVERE, null, ex);
+			Logger.getLogger(Query.class.getName()).log(Level.SEVERE, null, ex);
+			return 1;
 		}
 		return 0;
+	}
+	
+	public static int getUsersOnline(String serviceAccountEmail, String keyFileLocation, String url) throws IOException, GeneralSecurityException {
+		Analytics analytics = initializeAnalytics(serviceAccountEmail, keyFileLocation);
+
+		String profile = getWebresourceProfileId(analytics, url);
+		logger.log(Level.FINE, "First Profile Id: {0}", profile);
+		List<Map<String, String>> realtimeReport = getRealtimeReport(getResults(analytics, profile, "activeUsers"));
+		//realtime report can be empty (if nobody is online)
+		//or should have one row
+		if (realtimeReport == null || realtimeReport.isEmpty()) {
+			return 0;
+		}
+		assert realtimeReport.size() == 1;
+		String activeUsers = realtimeReport.get(0).get("rt:activeUsers");
+		return Integer.valueOf(activeUsers);
 	}
 	
 	private static Analytics initializeAnalytics(String SERVICE_ACCOUNT_EMAIL, String KEY_FILE_LOCATION) throws IOException, GeneralSecurityException {
@@ -150,7 +191,7 @@ public class HelloAnalyticsRealtime {
 		return getDataTable(realtimeData);
 	}
 
-	private static void logQueryInfo(Query query) {
+	private static void logQueryInfo(RealtimeData.Query query) {
 		logger.log(Level.FINE, "Query Info:\nIds: {0}\nMetrics: {1}\nDimensions: {2}\nSort: {3}\nFilters: {4}\nMax results: {5}", new Object[]{query.getIds(), query.getMetrics(), query.getDimensions(), query.getSort(), query.getFilters(), query.getMaxResults()});
 	}
 
@@ -182,5 +223,10 @@ public class HelloAnalyticsRealtime {
 			result.add(rowOutout);
 		}
 		return result;
+	}
+
+	@Override
+	public String getHelpMessage() {
+		throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
 	}
 }
