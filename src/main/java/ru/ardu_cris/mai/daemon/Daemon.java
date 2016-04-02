@@ -65,6 +65,7 @@ public class Daemon extends BaseApplicationModule implements Runnable {
 		if (startedFromGui || commandLine.hasOption("icon")) {
 			displayTrayIcon();
 		}
+		TomcatStartup.start();
 		new Thread(this).start();
 		return 0;
 	}
@@ -124,6 +125,7 @@ public class Daemon extends BaseApplicationModule implements Runnable {
 		exitItem.addActionListener((ActionEvent e) -> {
 			running = false;
 			systemTray.remove(trayIcon);
+			TomcatStartup.stop();
 		});
 		menu.add(exitItem);
 		

@@ -75,7 +75,7 @@ public class Face extends javax.swing.JFrame {
 			}
 		});
 		JMenuBar menuBar = new JMenuBar();
-		final JMenu jMenu = new JMenu("aaas");
+		final JMenu jMenu = new JMenu("Menu");
 		menuBar.add(jMenu);
 		JMenuItem startDaemonItem = new JMenuItem("Start background process");
 		startDaemonItem.addActionListener((ActionEvent e) -> {

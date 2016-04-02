@@ -37,8 +37,6 @@ public class Main {
 					module = new Daemon(); break;
 				case "face": case "gui":
 					module = new FaceModule(); break;
-				case "http":
-					//coming soon...
 				default:
 					System.err.println("Unknown module: " + moduleName);
 					System.exit(1);
