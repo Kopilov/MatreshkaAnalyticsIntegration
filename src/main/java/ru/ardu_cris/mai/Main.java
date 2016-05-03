@@ -8,7 +8,6 @@ import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import ru.ardu_cris.mai.daemon.Daemon;
-import ru.ardu_cris.mai.face.Face;
 import ru.ardu_cris.mai.face.FaceModule;
 
 /**

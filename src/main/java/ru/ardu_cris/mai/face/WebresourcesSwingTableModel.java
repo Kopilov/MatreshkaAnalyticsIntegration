@@ -25,6 +25,7 @@ import org.apache.commons.lang3.StringUtils;
  */
 public class WebresourcesSwingTableModel extends AbstractTableModel {
 	private static final String TABLENAME = "WEBRESOURCE";
+	private static final String PRIMARY_KEY = "ID";
 	private static final ResourceBundle l10n = ResourceBundle.getBundle("ru.ardu_cris.mai.l10n");
 
 	private final List<String> columns = new ArrayList<>();
@@ -42,7 +43,7 @@ public class WebresourcesSwingTableModel extends AbstractTableModel {
 	
 	public void refresh() throws SQLException {
 		data.clear();
-		try (PreparedStatement statement = connection.prepareStatement("select * from " + TABLENAME + " order by ID")) {
+		try (PreparedStatement statement = connection.prepareStatement("select * from " + TABLENAME + " order by " + PRIMARY_KEY)) {
 			ResultSet resultSet = statement.executeQuery();
 			int columnCount = resultSet.getMetaData().getColumnCount();
 			columns.clear();
@@ -102,7 +103,7 @@ public class WebresourcesSwingTableModel extends AbstractTableModel {
 	}
 
 	/**
-	 * Возвращает опиание поля
+	 * Возвращает описание поля
 	 * @param columnIndex номер поля таблицы начиная с 0
 	 * @return название соответствующего поля БД
 	 */
@@ -136,7 +137,7 @@ public class WebresourcesSwingTableModel extends AbstractTableModel {
 	@Override
 	public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
 		Object id = data.get(rowIndex).get(0);
-		String sql = "update " + TABLENAME + " set " + columns.get(columnIndex) + " = ? where ID = ?";
+		String sql = "update " + TABLENAME + " set " + columns.get(columnIndex) + " = ? where " + PRIMARY_KEY + " = ?";
 		try {
 			PreparedStatement statement = connection.prepareStatement(sql);
 			statement.setObject(1, aValue);
@@ -154,7 +155,8 @@ public class WebresourcesSwingTableModel extends AbstractTableModel {
 	}
 
 	void saveWebresourceFromForm(List<JTextField> formTextFields) throws SQLException {
-		if (StringUtils.isEmpty(formTextFields.get(0).getText())) {//id == null => insert (other fields only)
+		String idTxt = formTextFields.get(0).getText();
+		if (StringUtils.isEmpty(idTxt)) {//id == null => insert (other fields only)
 			StringBuilder sqlInsert = new StringBuilder ("insert into ");
 			sqlInsert.append(TABLENAME);
 			sqlInsert.append(" (");
@@ -177,33 +179,84 @@ public class WebresourcesSwingTableModel extends AbstractTableModel {
 			sqlInsert.append(")");
 			sqlValues.append(")");
 			String sql = sqlInsert.toString() + sqlValues.toString();
-			try (PreparedStatement statement = connection.prepareStatement(sql)) {
-				int sqlParam = 1;
-				for (int i = 1; i < columns.size(); i++) {
-					String stringValue = formTextFields.get(i).getText();
-					if (StringUtils.isEmpty(stringValue)) {
-						continue;
-					}
-					switch (columnsTypes.get(i).getName()) {
-						case "java.lang.String":
-							statement.setString(sqlParam, stringValue);
-							break;
-						case "java.lang.Integer":
-							statement.setInt(sqlParam, Integer.valueOf(stringValue));
-							break;
-						case "java.sql.Timestamp"://in our case we have only one timestamp field set to current date
-							statement.setTimestamp(sqlParam, new Timestamp(new Date().getTime()));
-							break;
-					}
-					sqlParam++;
-				}
-				statement.execute();
-			}
+			queryByForm(sql, formTextFields, false);
 		} else {//id != null => update
-			
+			StringBuilder sqlUpdate = new StringBuilder ("update ");
+			sqlUpdate.append(TABLENAME);
+			sqlUpdate.append(" set ");
+			boolean firstParameter = true;
+			for (int i = 1; i < columns.size(); i++) {
+				String stringValue = formTextFields.get(i).getText();
+				if (StringUtils.isEmpty(stringValue)) {
+					continue;
+				}
+				if (!firstParameter) {
+					sqlUpdate.append(", ");
+				}
+				String field = columns.get(i);
+				sqlUpdate.append(field);
+				sqlUpdate.append(" = ?");
+				firstParameter = false;
+			}
+			sqlUpdate.append(" where " + PRIMARY_KEY + "= ?");
+			String sql = sqlUpdate.toString();
+			queryByForm(sql, formTextFields, true);
 		}
 		refresh();
 		fireTableDataChanged();
+	}
+	
+	private void queryByForm(String sql, List<JTextField> formTextFields, boolean addPrimaryKey) throws NumberFormatException, SQLException {
+		try (PreparedStatement statement = connection.prepareStatement(sql)) {
+			int fieldInStatement = 1;
+			for (int i = 1; i < columns.size(); i++) {
+				String stringValue = formTextFields.get(i).getText();
+				if (StringUtils.isEmpty(stringValue)) {
+					continue;
+				}
+				bindParameter(i, statement, fieldInStatement, stringValue);
+				fieldInStatement++;
+			}
+			if (addPrimaryKey) {
+				String stringValue = formTextFields.get(0).getText();
+				bindParameter(0, statement, fieldInStatement, stringValue);
+			}
+			statement.execute();
+		}
+	}
+
+	private void bindParameter(int fieldInModel, final PreparedStatement statement, int fieldInStatement, String stringValue) throws NumberFormatException, SQLException {
+		switch (columnsTypes.get(fieldInModel).getName()) {
+			case "java.lang.String":
+				statement.setString(fieldInStatement, stringValue);
+				break;
+			case "java.lang.Integer":
+				statement.setInt(fieldInStatement, Integer.valueOf(stringValue));
+				break;
+			case "java.sql.Timestamp"://in our case we have only one timestamp field set to current date
+				statement.setTimestamp(fieldInStatement, new Timestamp(new Date().getTime()));
+				break;
+		}
+	}
+	
+	void loadWebresourceToForm(List<JTextField> formTextFields, int selectedRow) throws SQLException {
+		if (selectedRow < 0) {
+			return;
+		}
+		int id = (Integer) data.get(selectedRow).get(0);
+		String sql = "select * from " + TABLENAME + " where " + PRIMARY_KEY + " = ?";
+		try (PreparedStatement statement = connection.prepareStatement(sql)) {
+			statement.setInt(1, id);
+			ResultSet resultSet = statement.executeQuery();
+			while (resultSet.next()) {
+				for (int i = 0; i < columns.size(); i++) {
+					Object value = resultSet.getObject(i + 1);
+					if (value != null) {
+						formTextFields.get(i).setText(value.toString());
+					}
+				}
+			}
+		}
 	}
 	
 	/**

@@ -5,7 +5,6 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -13,6 +12,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
@@ -75,9 +75,9 @@ public class Face extends javax.swing.JFrame {
 			}
 		});
 		JMenuBar menuBar = new JMenuBar();
-		final JMenu jMenu = new JMenu("Menu");
+		final JMenu jMenu = new JMenu(l10n.getString("Menu"));
 		menuBar.add(jMenu);
-		JMenuItem startDaemonItem = new JMenuItem("Start background process");
+		JMenuItem startDaemonItem = new JMenuItem(l10n.getString("Start background process"));
 		startDaemonItem.addActionListener((ActionEvent e) -> {
 			Daemon daemon = new Daemon(true);
 			daemon.execute(faceModule.getCommandLine());
@@ -133,9 +133,21 @@ public class Face extends javax.swing.JFrame {
 		JPanel buttonsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
 		JButton addButton = new JButton(l10n.getString("addWebresourceButton"));
 		addButton.addActionListener((ActionEvent e) -> {
+			clearForm(formTextFields);
 			tabbedPane.setSelectedComponent(formPanel);
 		});
 		buttonsPanel.add(addButton);
+		JButton editButton = new JButton(l10n.getString("editWebresourceButton"));
+		editButton.addActionListener((ActionEvent e) -> {
+			clearForm(formTextFields);
+			tabbedPane.setSelectedComponent(formPanel);
+			try {
+				webresourcesTableModel.loadWebresourceToForm(formTextFields, webresourcesTable.getSelectedRow());
+			} catch (SQLException ex) {
+				Logger.getLogger(Face.class.getName()).log(Level.SEVERE, null, ex);
+			}
+		});
+		buttonsPanel.add(editButton);
 		JButton removeButton = new JButton(l10n.getString("removeWebresourceButton"));
 		removeButton.addActionListener((ActionEvent e) -> {
 			int[] selectedRows = webresourcesTable.getSelectedRows();
@@ -162,9 +174,7 @@ public class Face extends javax.swing.JFrame {
 	 * @return 
 	 */
 	private Component initFormPanel(WebresourcesSwingTableModel webresourcesTableModel) {
-		JPanel formPanel = new JPanel(new BorderLayout());
 		JPanel form = new JPanel(new SpringLayout());
-		formPanel.add(form, BorderLayout.CENTER);
 		int numberOfFields = webresourcesTableModel.getColumnCount();
 		for (int i = 0 ; i < numberOfFields; i++) {
 			JLabel label = new JLabel(webresourcesTableModel.getColumnDescription(i), JLabel.TRAILING);
@@ -179,8 +189,16 @@ public class Face extends javax.swing.JFrame {
 		                                numberOfFields, 2, //rows, cols
 		                                6, 6,        //initX, initY
 		                                6, 6);       //xPad, yPad
-		formPanel.add(initFormToolbar(webresourcesTableModel), BorderLayout.SOUTH);
-		return new JScrollPane(formPanel);
+		JPanel formPanelInScroll = new JPanel(new BorderLayout());
+		formPanelInScroll.add(form, BorderLayout.CENTER);
+		formPanelInScroll.add(initFormToolbar(webresourcesTableModel), BorderLayout.SOUTH);
+		return new JScrollPane(formPanelInScroll);
+	}
+	
+	void clearForm(Collection<JTextField> formTextFields) {
+		for (JTextField formTextField: formTextFields) {
+			formTextField.setText("");
+		}
 	}
 	
 	private Component initFormToolbar(WebresourcesSwingTableModel webresourcesTableModel) {
